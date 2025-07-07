@@ -6,7 +6,14 @@ Using a windowed **Shannon entropy** calculation, it reflects the distribution u
 This is particularly effective for identifying attacks such as **Slowloris**, where connections get stuck in specific TCP states.
 
 ---
+## 🗂️ Project Structure
 
+```bash
+tcp_state_monitor/
+├── tcp_states_entropy.py        # Main monitoring script (user space, BCC-based)
+├── README.md                    # Project documentation
+```
+---
 ## 🔍 `tcp_states_entropy.py`
 
 **Main user-space controller script for real-time TCP state transition monitoring and entropy analysis.**
@@ -25,14 +32,6 @@ This is particularly effective for identifying attacks such as **Slowloris**, wh
 - 🧪 Automatic eBPF map reset and verification
 - 📉 Effective for detecting slow-rate resource-based DDoS attacks
 
----
-## 🗂️ Project Structure
-
-```bash
-tcp_state_monitor/
-├── tcp_states_entropy.py        # Main monitoring script (user space, BCC-based)
-├── README.md                    # Project documentation
-```
 ---
 ## 🚀 Usage
 
