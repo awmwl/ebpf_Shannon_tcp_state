@@ -1,16 +1,3 @@
-当然可以！以下是为你的项目撰写的完整 `README.md`，内容涵盖：
-
-* 项目简介
-* 子模块说明（`tcp_states_entropy.py`）
-* 使用说明
-* 输出示例
-* 项目结构
-
-文风正式、结构清晰，适合放入 GitHub 项目主页或报告附录。
-
----
-
-````markdown
 # 📦 TCP State Entropy Monitor (eBPF-based)
 
 用于检测慢速资源型 DDoS 攻击的 TCP 状态行为监测工具。  
@@ -44,7 +31,6 @@
 tcp_state_monitor/
 ├── tcp_states_entropy.py        # 主监控脚本（用户态，基于 BCC）
 ├── README.md                    # 项目说明文档
-```
 ```
 
 ## 🚀 使用方法
