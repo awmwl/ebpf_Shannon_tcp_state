@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+from bcc import BPF
+import time
+import signal
+import sys
+import math
+from datetime import datetime
+import ctypes
+
+# BPF程序
+prog = '''
+#include <uapi/linux/ptrace.h>
+#include <net/sock.h>
+#include <linux/tcp.h>
+
+// TCP状态计数器
+BPF_ARRAY(tcp_state_counter, u64, 12);
+
+int kprobe_tcp_set_state(struct pt_regs *ctx)
+{
+    struct sock *sk = (struct sock *)PT_REGS_PARM1(ctx);
+    int new_state = (int)PT_REGS_PARM2(ctx);
+
+    if (new_state < 0 || new_state >= 12)
+        return 0;
+
+    u32 key = new_state;
+    u64 *count = tcp_state_counter.lookup(&key);
+    if (count)
+        __sync_fetch_and_add(count, 1);
+
+    return 0;
+}
+'''
+
+# TCP状态名称
+tcp_states = [
+    "TCP_ESTABLISHED",
+    "TCP_SYN_SENT", 
+    "TCP_SYN_RECV",
+    "TCP_FIN_WAIT1",
+    "TCP_FIN_WAIT2",
+    "TCP_TIME_WAIT",
+    "TCP_CLOSE",
+    "TCP_CLOSE_WAIT",
+    "TCP_LAST_ACK",
+    "TCP_LISTEN",
+    "TCP_CLOSING",
+    "TCP_NEW_SYN_RECV"
+]
+
+# 全局变量控制程序退出
+exiting = False
+
+def compute_entropy(state_counts):
+    """计算熵值"""
+    total = sum(state_counts)
+    if total == 0:
+        return 0.0
+    
+    entropy = 0.0
+    for count_val in state_counts:
+        if count_val == 0:
+            continue
+        p = count_val / total
+        entropy -= p * math.log2(p)
+    
+    return entropy
+
+def reset_counters(b):
+    """重置所有计数器 - 使用ctypes确保真正清空"""
+    tcp_state_counter = b.get_table("tcp_state_counter")
+    for i in range(12):
+        # 使用ctypes.c_uint64(0)而不是直接赋值0
+        tcp_state_counter[ctypes.c_uint32(i)] = ctypes.c_uint64(0)
+    print(f"🔄 Map cleared at {datetime.now().strftime('%H:%M:%S')}")
+
+def sig_handler(signum, frame):
+    """信号处理函数"""
+    global exiting
+    exiting = True
+
+def main():
+    global exiting
+    
+    # 设置信号处理
+    signal.signal(signal.SIGINT, sig_handler)
+    signal.signal(signal.SIGTERM, sig_handler)
+    
+    # 编译并加载BPF程序
+    try:
+        b = BPF(text=prog)
+        b.attach_kprobe(event="tcp_set_state", fn_name="kprobe_tcp_set_state")
+        
+        print("Monitoring TCP states (5s sliding window), press Ctrl+C to exit")
+        print("=" * 60)
+        
+        # 时间窗口控制
+        window_duration = 5  # 5秒窗口
+        last_reset_time = time.time()
+        window_count = 0
+        
+        while not exiting:
+            current_time = time.time()
+            
+            # 检查是否需要重置计数器
+            if current_time - last_reset_time >= window_duration:
+                window_count += 1
+                
+                # 获取当前窗口数据
+                state_counts = []
+                tcp_state_counter = b.get_table("tcp_state_counter")
+                for i in range(12):
+                    try:
+                        count = tcp_state_counter[ctypes.c_uint32(i)].value
+                        state_counts.append(count)
+                    except KeyError:
+                        state_counts.append(0)
+                
+                # 显示当前窗口统计
+                total_transitions = sum(state_counts)
+                entropy = compute_entropy(state_counts)
+                
+                print(f"\n📊 Window #{window_count} - {datetime.now().strftime('%H:%M:%S')}")
+                print(f"Duration: {window_duration}s | Total Transitions: {total_transitions} | Entropy: {entropy:.4f}")
+                print("-" * 60)
+                
+                # 显示非零状态
+                active_states = []
+                for i, count in enumerate(state_counts):
+                    if count > 0:
+                        percentage = (count / total_transitions * 100) if total_transitions > 0 else 0
+                        active_states.append((tcp_states[i], count, percentage))
+                
+                if active_states:
+                    print("Active TCP States:")
+                    for state_name, count, percentage in active_states:
+                        bar = "█" * int(percentage / 2)  # 简单的进度条
+                        print(f"  {state_name:<15} : {count:>6} ({percentage:>5.1f}%) {bar}")
+                else:
+                    print("No TCP state transitions in this window")
+                
+                print("=" * 60)
+                
+                # 🔥 重置计数器 - 使用ctypes确保Map被清空
+                reset_counters(b)
+                last_reset_time = current_time
+                
+                # 验证清空是否成功
+                print("Verifying map reset...")
+                for i in range(12):
+                    try:
+                        count = tcp_state_counter[ctypes.c_uint32(i)].value
+                        if count != 0:
+                            print(f"⚠️  Warning: {tcp_states[i]} still has count {count}")
+                    except:
+                        pass
+                print("✅ Map reset verification complete")
+                
+            time.sleep(0.1)  # 短暂睡眠以避免过度占用CPU
+            
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    
+    print("\nExiting...")
+
+if __name__ == "__main__":
+    main()
